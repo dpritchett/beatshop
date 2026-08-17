@@ -1,0 +1,37 @@
+# Deliberately tiny recipe for the test suite. Same code path as apollo.toml,
+# short enough that rendering it twice per test run stays cheap. Timings are
+# scaled down rather than removed so the envelope and reverb still overlap the
+# way they do in a real recipe.
+
+name = "tiny"
+seed = 1
+
+[render]
+sample_rate = 48000
+bit_depth = 24
+
+[pad]
+amplitude = 0.40
+attack = 0.6
+release = 1.0
+width = 0.32
+cutoff_lo = 260.0
+cutoff_hi = 1500.0
+sweep_period = 2.5
+detune_cents = [-7.0, 3.5]
+pans = [-0.5, 0.5]
+phase_jitter = 0.0
+
+[reverb]
+decay = 1.2
+damping = 2400.0
+mix = 0.45
+predelay = 0.04
+
+[progression]
+chord_seconds = 2.0
+tail_seconds = 1.0
+chords = [
+    [50, 62],
+    [45, 57],
+]

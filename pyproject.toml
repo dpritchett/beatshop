@@ -18,7 +18,13 @@ scpad = "scpad.cli:main"
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No slow/fast split. NRT rendering runs ~67x realtime, so a full 111s piece
+# costs under two seconds -- there is nothing here worth deferring.
+
 [dependency-groups]
 dev = [
     "numpy>=2.4.6",
+    "pytest>=9.1.1",
 ]

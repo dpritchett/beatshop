@@ -1,0 +1,82 @@
+# Slow ambient pad. Reference point is Eno's Apollo: minimal, spacious, nothing
+# that demands attention. Not a drone -- the chords do move, just slowly enough
+# that you notice afterward rather than during.
+
+name = "apollo"
+# Only has an effect when pad.phase_jitter is above zero. Left wired up so
+# turning jitter on is a one-line change that stays reproducible.
+seed = 20260816
+
+[render]
+sample_rate = 48000
+bit_depth = 24
+
+[pad]
+# Peak lands near -7 dBFS. There is no limiter anywhere in the chain -- one
+# would hide the clipping the tests exist to catch -- so level is set by
+# measuring and scaling, which works because the whole chain is linear.
+amplitude = 0.40
+
+# Attack and release both run for seconds. The release is longer than the
+# attack so the outgoing chord is still fading while the incoming one is still
+# arriving, which is what blurs the boundary between them.
+attack = 7.0
+release = 10.0
+
+# VarSaw width. At 0.32 it is closer to a soft triangle than a saw: enough
+# harmonic content for the lowpass to have something to work on, not so much
+# that the sound gets reedy.
+width = 0.32
+
+# The filter travels between these over one sweep_period, exponentially, so the
+# motion sounds even rather than rushing through the top octave.
+cutoff_lo = 260.0
+cutoff_hi = 1500.0
+# 31s against a 24s chord: the two never line up inside a four-chord loop, so
+# the filter is in a different place each time a chord comes around.
+sweep_period = 31.0
+
+# Cents, not semitones. Wide enough to beat, narrow enough to stay one tone.
+# Deliberately asymmetric -- an even spread produces a regular beat pattern,
+# which the ear hears as rhythm.
+detune_cents = [-7.0, -2.5, 3.5, 8.0]
+
+# Pinned to the values used by the archived pad-v1-preloop render so this recipe
+# keeps reproducing that exact file. Omit this key and scpad spaces voices by
+# golden angle instead, which sounds near-identical but is not bit-identical.
+voice_phases = [0.0, 0.87, 1.93, 2.71]
+
+# Fixed pan position per note index within a chord. Spread wide; the low note
+# sits left, and nothing sits dead centre except the reverb.
+pans = [-0.55, 0.35, -0.25, 0.6]
+
+# 0.0 keeps the filter stagger purely formulaic. Raise it to scatter the sweep
+# offsets from `seed` instead.
+phase_jitter = 0.0
+
+[reverb]
+# RT60 in seconds. Long enough that the tail of one chord is still audible well
+# into the next, which is the whole point.
+decay = 7.0
+# Lowpass inside the tank. Keeps the tail from getting hissy as it decays and
+# stops the comb filters ringing in the top end.
+damping = 2400.0
+mix = 0.45
+predelay = 0.04
+
+[progression]
+chord_seconds = 24.0
+# Time after the final release for the tail to decay. Measured: the tail is
+# under -60 dBFS about 5s after the last release ends.
+tail_seconds = 5.0
+
+# Dmaj7 -> Bm7 -> Gmaj7 -> A6sus, as MIDI note numbers. Voiced to descend and
+# then lift back, so wrapping from the last chord to the first is a step rather
+# than a jump. No chord shares a top note with its neighbour, which keeps the
+# changes from sounding like a single voice moving.
+chords = [
+    [50, 57, 66, 73],
+    [47, 54, 62, 69],
+    [43, 50, 59, 66],
+    [45, 52, 61, 71],
+]
