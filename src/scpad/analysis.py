@@ -125,6 +125,85 @@ class SeamMetrics:
         )
 
 
+@dataclass(frozen=True)
+class SweepMetrics:
+    """Whether a one-shot actually travels, and where its two peaks land.
+
+    `measure()` says a whoosh is not silent and not clipped. It cannot say
+    whether the filter opened, or whether the thing is a low thump with some
+    noise on top. These are the numbers that answer that, so the shape of a
+    gesture can be asserted rather than auditioned.
+
+    Times are in seconds from the start of the file. `low_fraction` is the share
+    of total energy below `low_hz`, which is the thump-versus-air ratio.
+    """
+
+    peak_level_at: float
+    peak_centroid_at: float
+    centroid_start: float
+    centroid_peak: float
+    centroid_end: float
+    low_fraction: float
+    frames: list[tuple[float, float, float]] = field(default_factory=list)
+
+    def describe(self) -> str:
+        return (
+            f"loudest at     {self.peak_level_at:.3f}s\n"
+            f"brightest at   {self.peak_centroid_at:.3f}s\n"
+            f"centroid       {self.centroid_start:.0f} -> {self.centroid_peak:.0f} -> "
+            f"{self.centroid_end:.0f} Hz\n"
+            f"low fraction   {self.low_fraction:.1%}"
+        )
+
+
+def measure_sweep(
+    audio: Audio,
+    *,
+    window_seconds: float = 0.012,
+    low_hz: float = 400.0,
+    floor_db: float = -45.0,
+) -> SweepMetrics:
+    mono = audio.samples.mean(axis=1)
+    size = 1 << max(6, int(window_seconds * audio.sample_rate)).bit_length()
+    if mono.size < size * 2:
+        raise ValueError("too few frames to measure a sweep")
+
+    window = np.hanning(size)
+    freqs = np.fft.rfftfreq(size, 1.0 / audio.sample_rate)
+    # Frames quieter than this are all filter ringing and dither, and their
+    # centroids are noise. Including them makes the tail look bright.
+    floor = float(np.abs(mono).max()) * (10.0 ** (floor_db / 20.0))
+
+    frames: list[tuple[float, float, float]] = []
+    for start in range(0, mono.size - size, size // 2):
+        chunk = mono[start : start + size]
+        rms = float(np.sqrt(np.mean(chunk**2)))
+        if rms < floor:
+            continue
+        spectrum = np.abs(np.fft.rfft(chunk * window))
+        total = float(spectrum.sum())
+        if total <= 0.0:
+            continue
+        frames.append(
+            (start / audio.sample_rate, rms, float((freqs * spectrum).sum() / total))
+        )
+    if not frames:
+        raise ValueError("no frames above the silence floor; nothing to measure")
+
+    whole = np.abs(np.fft.rfft(mono * np.hanning(mono.size))) ** 2
+    whole_freqs = np.fft.rfftfreq(mono.size, 1.0 / audio.sample_rate)
+
+    return SweepMetrics(
+        peak_level_at=max(frames, key=lambda f: f[1])[0],
+        peak_centroid_at=max(frames, key=lambda f: f[2])[0],
+        centroid_start=frames[0][2],
+        centroid_peak=max(f[2] for f in frames),
+        centroid_end=frames[-1][2],
+        low_fraction=float(whole[whole_freqs < low_hz].sum() / whole.sum()),
+        frames=frames,
+    )
+
+
 def measure_seam(audio: Audio, *, window_seconds: float = 0.5) -> SeamMetrics:
     samples = audio.samples
     if audio.frames < 4:

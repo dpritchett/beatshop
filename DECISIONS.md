@@ -195,9 +195,148 @@ object. Worth knowing before handing raw WAVs to another project.
 
 For handing renders to other projects: FLAC is lossless at 6.65 MB (4.8:1 --
 slow ambient material compresses very well), MP3 192k is 2.67 MB, against 32 MB
-for the 24-bit WAV. Copies live in `out/archive/` and mirrored under
-`C:\Users\dprit\Downloads\scpad\`. Note `out/` is gitignored, so neither
+for the 24-bit WAV. Copies live in `out/archive/` and are mirrored into the
+Windows Downloads folder for listening. Note `out/` is gitignored, so neither
 location survives a clean checkout -- renders are meant to be regenerated.
+
+## The whoosh, and what the determinism rule actually forbids (2026-08-17)
+
+Callscape asked for a `flip` earcon and it landed here rather than in beepboop,
+because beatshop already owns a filter that moves. See `HANDOFF.md` for that
+argument; this records what came out of doing it.
+
+### Noise without touching server RNG
+
+The rule in `synths.py` is "no noise UGens", and a whoosh is filtered noise, so
+the rule appeared to block the work. It did not. The doctrine was already
+"variation is computed in Python from the recipe seed and passed in", and a
+noise buffer is that same move with an array instead of a scalar: draw the
+samples from `random.Random(seed)`, load them with `/b_alloc` plus a run of
+`/b_setn`, read them back with `PlayBuf`. scsynth's RNG is never consulted and
+the render is byte-identical across runs, which `test_whoosh.py` asserts.
+
+`RandSeed`/`RandID` were deliberately not used. Making SC's own noise UGens
+behave depends on server RNG semantics this project has never characterised, and
+using them would mean re-proving determinism from scratch.
+
+Two details that cost time:
+
+- `/b_setn` is chunked at 1024 samples. An NRT score is read from a file rather
+  than a socket so the usual UDP packet ceiling does not apply, but scsynth
+  still parses one packet at a time and a single 16 KB request is not worth
+  finding the limit of.
+- `PlayBuf` with `loop=0` **holds its final sample** rather than zeroing. Left
+  alone that is a DC step at the end of every trigger, so the buffer is
+  allocated four control blocks past the end of the render.
+
+### Seed semantics now differ by recipe kind
+
+For a pad recipe the seed does nothing unless `phase_jitter` is on, and there is
+a test pinning that. For a whoosh recipe the seed *draws the noise*, so changing
+it is a different sound rather than the same sound rearranged. Both behaviours
+are now asserted, because two opposite meanings for one key is the sort of thing
+that gets forgotten and then relied on.
+
+### Block rounding against the "under half a second" contract
+
+Confirmed rather than assumed, since the handoff asked. 0.35s at 22050 Hz is
+7717.5 frames, which rounds up to 7744 (121 whole control blocks) for a rendered
+0.3512s. The overshoot is 1.2ms and the test asserts the total stays under 0.5s.
+
+### Output format is callscape's, not ours
+
+22050 Hz / 16-bit / mono, which is what every other file in
+`web/public/sounds/` already is. The whole earcon is 15,532 bytes against
+roughly 100K for a 24-bit 48 kHz stereo version of the same 0.35s. Mono is not a
+recipe dial: the source is one noise buffer with no stereo information in it, so
+a centred `Pan2` would double the file to say the same thing twice.
+
+### What the family resemblance cost
+
+The handoff predicted the resemblance to the `flight-slow`/`flight-fast` beds
+would not survive, and it did not. Different noise generator, different filter
+topology, no shared seed lineage. The mitigation that did land: an FFT of
+`flight-slow.wav` puts its character at 90 Hz (0 dB), 180 Hz (-5.4 dB) and
+270 Hz (-20.7 dB), and those three partials sit under the noise at those
+relative gains. They bypass the sweep, because the sweep starts at 180 Hz and
+would gut them.
+
+First balance attempt had `body_mix` at 0.35 and 75% of the output energy under
+400 Hz -- a thump with some noise on it. At 0.16 it is 34%, which is the number
+`test_it_is_air_and_not_a_thump` now guards.
+
+### Measuring a gesture
+
+`measure_seam` answers "does this loop", which a one-shot never does. The
+replacement is `measure_sweep`: where the level peaks, where the spectral
+centroid peaks, how far the centroid travels, and what share of energy sits
+under 400 Hz. That turns three things you would otherwise judge by ear into
+assertions -- the filter opens, the filter closes, and the brightest instant
+lands *after* the loudest one, which is what makes it read as going past you
+rather than arriving.
+
+The checksum was deliberately left unpinned until the listen, so retuning stayed
+cheap. Daniel signed off the same day and `FLIP_SHA256` is now a test constant,
+same role as `APOLLO_SHA256`.
+
+### Auditioning a one-shot
+
+A 0.35s earcon played once tells you nothing, which is why the sign-off needed
+`scripts/audition.py` rather than `scpad play`. It stitches three questions into
+one file: three spaced singles (is it one gesture or a click with noise after
+it), a 0.25s retrigger (a stick gets pressed twice), and one landing on top of
+the flight bed (does it cut through the thing it will usually sit over). The
+retrigger sums to 0.715 peak with no clipping. That file is a listening aid and
+nothing in the render or test path knows it exists.
+
+### doit
+
+Added `dodo.py`. Renders are pure functions of a recipe plus the code that reads
+it, which is exactly what doit's file-dependency tracking is for, and the tuning
+loop for a new sound is otherwise three commands. Also fixes a workflow problem
+that had nothing to do with audio: throwaway `python -c` strings each need their
+own approval, and a task runner plus `scripts/` gives one preapprovable surface.
+
+## Licensing: MIT code, CC BY-NC renders (2026-08-17)
+
+Going public at `github.com/dpritchett/beatshop`. The intent was "code is free,
+the sounds are not", and the interesting part was discovering that the obvious
+way to write that down does not work.
+
+`out/` is gitignored, so **no audio ships in this repo at all.** What ships is
+`recipes/*.toml`, and the renderer is deterministic to the byte. So a licence
+that frees the recipes while reserving the audio reserves nothing: MIT grants
+the right to run the software, and the output of running MIT software is not
+governed by MIT. Anyone can clone, render, and walk away with identical bytes.
+
+Three ways to resolve it were on the table:
+
+1. Treat the recipes as the composition and reserve them along with the audio.
+   The only version with teeth, since the score *is* the sound here. Rejected --
+   the recipes are the most interesting thing in the repo to read, and the whole
+   point of publishing is that people read them.
+2. MIT everything and reserve nothing in practice. Honest, but it is not what
+   Daniel wanted.
+3. MIT the code *and* the recipes, CC BY-NC 4.0 the rendered audio the author
+   distributes. Chosen.
+
+NC rather than ND or SA. ND would block trimming and looping, which is the first
+thing anyone does with an ambient bed; SA imposes terms on other people's
+derivative work, which was not the goal. NC says the actual thing: use it,
+credit me, ask before you sell something with it in it.
+
+`LICENSE-SOUNDS.md` names the regeneration hole explicitly rather than papering
+over it. Pretending a licence is stronger than it is reads worse than saying
+"the method is free, the recordings are mine, and if you want the sound badly
+enough to rebuild it, you have earned it."
+
+Layout is `LICENSE` with verbatim MIT text, so GitHub's licence detection picks
+it up cleanly, plus `LICENSE-SOUNDS.md` for the carve-out. A single `LICENSE.md`
+mixing both would likely have defeated detection.
+
+Also fixed while in `pyproject.toml`: numpy was in the dev dependency group but
+`wavio.py` and `analysis.py` import it at runtime, so an actual install produced
+a CLI that imported and then died. Moved to `dependencies`.
 
 ## Open / not yet done
 
@@ -205,11 +344,9 @@ location survives a clean checkout -- renders are meant to be regenerated.
   enough. Approach: render past the loop point and fold the overhang onto the
   head. Complicated by scsynth's 64-sample block rounding, so the fold has to
   align to a block boundary rather than an arbitrary sample.
-- **`scripts/` is empty on purpose.** `scripts/pad_sketch.py` was the bridge
-  between the hardcoded sketch and the recipe format; once `apollo.toml`
-  reproduced it byte for byte the sketch was two ways to render one thing, so
-  it was deleted. The directory stays as the home for future scratch drivers.
-- **Only one instrument.** Everything is the same pad SynthDef. A second timbre
-  is the obvious next musical move, not more knobs on this one.
+- **Two instruments now**, the pad and the whoosh, and nothing shares between
+  them except the render path and the golden-angle phase helper. A third would
+  be the point at which the `[pad]`/`[whoosh]` table discrimination in
+  `recipe.py` wants to become a real `kind` field rather than a table lookup.
 - **No `scpad play` test coverage**, by design. It is quarantined from the
   harness and exercised by hand.

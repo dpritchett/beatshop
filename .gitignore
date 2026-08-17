@@ -7,3 +7,7 @@ out/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# doit's dependency database. Records file hashes and absolute paths from this
+# machine, so it is worse than useless in a clean checkout.
+.doit.db*

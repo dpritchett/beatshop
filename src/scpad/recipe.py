@@ -41,6 +41,21 @@ def _tuplify(table: dict[str, Any], *keys: str) -> dict[str, Any]:
     return table
 
 
+def _pairs(table: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Same, one level deeper, for TOML arrays of arrays."""
+    for key in keys:
+        if table.get(key) is not None:
+            table[key] = tuple(tuple(float(v) for v in row) for row in table[key])
+    return table
+
+
+# Every table `load()` knows how to read. A recipe declaring anything else is
+# almost certainly a typo in a table header, which TOML would otherwise swallow
+# silently along with every key underneath it.
+_PAD_TABLES = frozenset({"pad", "reverb", "progression"})
+_KNOWN_TABLES = _PAD_TABLES | {"render", "whoosh"}
+
+
 @dataclass(frozen=True)
 class RenderSpec:
     sample_rate: int = 48000
@@ -72,6 +87,33 @@ class PadSpec:
 
 
 @dataclass(frozen=True)
+class WhooshSpec:
+    """A one-shot swept-noise earcon. Mutually exclusive with `[pad]`.
+
+    Every duration here is a fraction of `duration` rather than an absolute time,
+    so retuning the length of the gesture does not require rebalancing the
+    envelopes underneath it.
+    """
+
+    duration: float = 0.35
+    amplitude: float = 0.5
+    # Fraction of `duration` at which the amplitude envelope peaks.
+    attack_fraction: float = 0.35
+    # Fraction of `duration` at which the filter is widest open. Later than
+    # `attack_fraction` on purpose -- see build_whoosh.
+    sweep_peak_at: float = 0.45
+    cutoff_start: float = 180.0
+    cutoff_peak: float = 5200.0
+    cutoff_end: float = 300.0
+    # 0.0 is white noise; higher is darker. See synths.noise_samples.
+    noise_tilt: float = 0.35
+    # (frequency, gain) pairs mixed under the noise, unfiltered.
+    partials: tuple[tuple[float, ...], ...] = ((90.0, 1.0), (180.0, 0.55), (270.0, 0.12))
+    # Blend between the filtered noise and those partials, 0.0 to 1.0.
+    body_mix: float = 0.35
+
+
+@dataclass(frozen=True)
 class ReverbSpec:
     decay: float = 7.0
     damping: float = 2400.0
@@ -96,7 +138,14 @@ class Recipe:
     pad: PadSpec = field(default_factory=PadSpec)
     reverb: ReverbSpec = field(default_factory=ReverbSpec)
     progression: ProgressionSpec = field(default_factory=ProgressionSpec)
+    # Present only for one-shot recipes. `load()` rejects a file that declares
+    # both this and any of the pad tables, so the two kinds never overlap.
+    whoosh: WhooshSpec | None = None
     source_path: Path | None = None
+
+    @property
+    def is_whoosh(self) -> bool:
+        return self.whoosh is not None
 
     @property
     def loop_seconds(self) -> float:
@@ -104,9 +153,52 @@ class Recipe:
 
     @property
     def total_seconds(self) -> float:
+        if self.whoosh is not None:
+            return self.whoosh.duration
         return self.loop_seconds + self.pad.release + self.progression.tail_seconds
 
     def validate(self) -> None:
+        if self.render.bit_depth not in (16, 24, 32):
+            raise RecipeError("render.bit_depth must be 16, 24 or 32")
+        if self.render.sample_rate <= 0:
+            raise RecipeError("render.sample_rate must be positive")
+        if self.whoosh is not None:
+            self._validate_whoosh(self.whoosh)
+        else:
+            self._validate_pad()
+
+    @staticmethod
+    def _validate_whoosh(whoosh: WhooshSpec) -> None:
+        if whoosh.duration <= 0:
+            raise RecipeError("whoosh.duration must be positive")
+        for name in ("attack_fraction", "sweep_peak_at"):
+            value = getattr(whoosh, name)
+            if not 0.0 < value < 1.0:
+                raise RecipeError(f"whoosh.{name} must be between 0 and 1, exclusive")
+        # EnvelopeShape.EXPONENTIAL cannot cross or touch zero, and every one of
+        # these is a filter frequency, so this is a hard requirement rather than
+        # a taste check.
+        for name in ("cutoff_start", "cutoff_peak", "cutoff_end"):
+            if getattr(whoosh, name) <= 0:
+                raise RecipeError(f"whoosh.{name} must be positive")
+        if whoosh.cutoff_peak <= max(whoosh.cutoff_start, whoosh.cutoff_end):
+            raise RecipeError(
+                "whoosh.cutoff_peak must be above both cutoff_start and cutoff_end; "
+                "the filter has to open and then close, or this is not a whoosh"
+            )
+        if not 0.0 <= whoosh.noise_tilt < 1.0:
+            raise RecipeError("whoosh.noise_tilt must be at least 0 and below 1")
+        if not 0.0 <= whoosh.body_mix <= 1.0:
+            raise RecipeError("whoosh.body_mix must be between 0 and 1")
+        for pair in whoosh.partials:
+            if len(pair) != 2:
+                raise RecipeError(
+                    f"whoosh.partials entries must be [frequency, gain] pairs, got {list(pair)}"
+                )
+            if pair[0] <= 0:
+                raise RecipeError("whoosh.partials frequencies must be positive")
+
+    def _validate_pad(self) -> None:
         if not self.progression.chords:
             raise RecipeError("progression.chords is empty; nothing to render")
         if len(self.pad.detune_cents) == 0:
@@ -134,8 +226,6 @@ class Recipe:
             raise RecipeError("progression.chord_seconds must be positive")
         if not 0.0 <= self.reverb.mix <= 1.0:
             raise RecipeError("reverb.mix must be between 0 and 1")
-        if self.render.bit_depth not in (16, 24, 32):
-            raise RecipeError("render.bit_depth must be 16, 24 or 32")
 
 
 def load(path: str | Path) -> Recipe:
@@ -154,6 +244,33 @@ def load(path: str | Path) -> Recipe:
     unknown_top = set(top) - {"name", "seed"}
     if unknown_top:
         raise RecipeError(f"{path}: unknown top-level key(s) {sorted(unknown_top)}")
+
+    unknown_tables = set(raw) - set(top) - _KNOWN_TABLES
+    if unknown_tables:
+        raise RecipeError(f"{path}: unknown table(s) {sorted(unknown_tables)}")
+
+    if "whoosh" in raw:
+        collided = sorted(_PAD_TABLES & set(raw))
+        if collided:
+            raise RecipeError(
+                f"{path}: a [whoosh] recipe cannot also declare {collided}; "
+                "one recipe renders one thing"
+            )
+        recipe = Recipe(
+            name=str(top["name"]),
+            seed=int(top["seed"]),
+            render=RenderSpec(
+                **_take(raw.get("render", {}), RenderSpec, f"{path} [render]")
+            ),
+            whoosh=WhooshSpec(
+                **_pairs(
+                    _take(raw["whoosh"], WhooshSpec, f"{path} [whoosh]"), "partials"
+                )
+            ),
+            source_path=path,
+        )
+        recipe.validate()
+        return recipe
 
     progression_table = _take(
         raw.get("progression", {}), ProgressionSpec, f"{path} [progression]"

@@ -1,5 +1,38 @@
 # Handoff
 
+## Done: the whoosh is built (2026-08-17)
+
+`recipes/flip.toml` renders `out/flip.wav`, 15,532 bytes, 22050 Hz / 16-bit /
+mono, 0.351s. `uv run doit deliver` copies it into
+`callscape/web/public/sounds/`. Full reasoning in `DECISIONS.md`; the three
+questions this handoff asked to decide early were answered as:
+
+- **Output format:** callscape's, not beatshop's. 22050/16/mono like every other
+  earcon in that directory. Mono is not a dial -- one noise buffer has no stereo
+  information to preserve.
+- **Block rounding:** confirmed, not assumed. 0.35s rounds up to 0.3512s, a
+  1.2ms overshoot, and there is a test asserting the total stays under 0.5s.
+- **Delivery:** manual, as predicted. It is a `doit` task rather than a note.
+
+The determinism rule held without being changed: noise is drawn in Python from
+the recipe seed, loaded as a `Buffer`, read with `PlayBuf`, and two renders are
+byte-identical. `RandSeed`/`RandID` were not touched.
+
+The predicted cost was real. The family resemblance to the flight beds did not
+survive; what landed is the 90/180/270 Hz partial layer, measured off
+`flight-slow.wav` rather than guessed. It is a cousin.
+
+**Signed off by ear, same day.** The numbers said the right shape -- filter
+opens and closes, brightest instant 35ms after the loudest, 34% of energy under
+400 Hz, peak -3.6 dBFS like its neighbours -- and Daniel confirmed the sound.
+`FLIP_SHA256` is pinned in `tests/test_whoosh.py`, so a change to this earcon is
+now a decision rather than a surprise.
+
+    uv run doit tune        # render it and chart the shape
+    uv run doit audition    # singles, a retrigger, and one over the flight bed
+
+---
+
 ## Callscape wants a whoosh, and it lands here rather than in beepboop (2026-08-17)
 
 Written from the beepboop side. Beepboop bakes callscape's earcons and speech;

@@ -34,10 +34,18 @@ chords = [[60, 64]]
 
 
 def test_shipped_recipes_load():
+    """Contract widened when the whoosh landed: this used to assert that every
+    shipped recipe had chords, which was true when the pad was the only
+    instrument. What it always meant is that a shipped recipe loads and has
+    something to render."""
     for path in sorted(RECIPES.glob("*.toml")):
         recipe = load(path)
-        assert recipe.progression.chords
-        assert recipe.total_seconds > recipe.loop_seconds
+        assert recipe.total_seconds > 0
+        if recipe.is_whoosh:
+            assert not recipe.progression.chords
+        else:
+            assert recipe.progression.chords
+            assert recipe.total_seconds > recipe.loop_seconds
 
 
 def test_minimal_recipe_uses_defaults(tmp_path):
@@ -100,6 +108,73 @@ def test_seed_does_nothing_without_jitter(tmp_path):
     one = load(write(tmp_path / "a", template.format(seed=1)))
     two = load(write(tmp_path / "b", template.format(seed=99999)))
     assert sweep_phases(one) == sweep_phases(two)
+
+
+WHOOSH = """
+name = "w"
+seed = 3
+[whoosh]
+duration = 0.3
+"""
+
+
+def test_whoosh_recipe_uses_defaults(tmp_path):
+    recipe = load(write(tmp_path, WHOOSH))
+    assert recipe.is_whoosh
+    assert recipe.whoosh is not None
+    assert recipe.total_seconds == 0.3
+    assert recipe.whoosh.partials[0] == (90.0, 1.0)
+
+
+def test_a_recipe_cannot_be_both_kinds(tmp_path):
+    """One recipe renders one thing.
+
+    Worth rejecting rather than picking a winner: the pad tables all have
+    defaults, so a half-converted recipe would otherwise render silently as
+    whichever kind `load()` happened to check first.
+    """
+    body = WHOOSH + "\n[progression]\nchords = [[60]]\n"
+    with pytest.raises(RecipeError, match="cannot also declare"):
+        load(write(tmp_path, body))
+
+
+def test_unknown_table_is_rejected(tmp_path):
+    """A typo in a table header takes every key under it with it."""
+    body = MINIMAL + "\n[whosh]\nduration = 0.3\n"
+    with pytest.raises(RecipeError, match="unknown table"):
+        load(write(tmp_path, body))
+
+
+def test_whoosh_unknown_key_is_rejected(tmp_path):
+    with pytest.raises(RecipeError, match="unknown key"):
+        load(write(tmp_path, WHOOSH + "cutof_peak = 4000.0\n"))
+
+
+def test_a_filter_that_never_opens_is_rejected(tmp_path):
+    """Not a taste check. Without a peak above both ends there is no travel, and
+    the sound is a burst of static with an envelope on it."""
+    body = WHOOSH + "cutoff_start = 900.0\ncutoff_peak = 800.0\n"
+    with pytest.raises(RecipeError, match="open and then close"):
+        load(write(tmp_path, body))
+
+
+def test_nonpositive_cutoff_is_rejected(tmp_path):
+    """EnvelopeShape.EXPONENTIAL cannot touch zero, so this would render wrong
+    rather than fail loudly."""
+    with pytest.raises(RecipeError, match="cutoff_end must be positive"):
+        load(write(tmp_path, WHOOSH + "cutoff_end = 0.0\n"))
+
+
+@pytest.mark.parametrize("key", ["attack_fraction", "sweep_peak_at"])
+def test_fractions_outside_the_envelope_are_rejected(tmp_path, key):
+    with pytest.raises(RecipeError, match=key):
+        load(write(tmp_path, WHOOSH + f"{key} = 1.0\n"))
+
+
+def test_malformed_partials_are_rejected(tmp_path):
+    body = WHOOSH + "partials = [[90.0, 1.0], [180.0]]\n"
+    with pytest.raises(RecipeError, match="frequency, gain"):
+        load(write(tmp_path, body))
 
 
 def test_seed_changes_phases_once_jitter_is_on(tmp_path):

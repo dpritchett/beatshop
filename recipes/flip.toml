@@ -1,0 +1,61 @@
+# The `flip` earcon for callscape: the half-turn that looks behind you.
+#
+# Something wooshy that evokes movement and maybe thrusters, in Daniel's words.
+# The camera spin it accompanies is 0.2s, so this has to be over before the view
+# has settled -- anything still whooshing after you have arrived reads as lag.
+#
+# Format is callscape's house style for earcons, not beatshop's: 22050 Hz,
+# 16-bit, mono, which is what every other file in web/public/sounds/ is. At that
+# rate the whole thing is about 16K.
+
+name = "flip"
+# Unlike the pad recipes, the seed here is load-bearing: it draws the noise
+# samples. Change it and you get a different whoosh, not the same whoosh with a
+# different stagger. 1102 is the seed the flight beds use, kept for continuity
+# even though the generator is different enough that the number is a gesture.
+seed = 1102
+
+[render]
+sample_rate = 22050
+bit_depth = 16
+
+[whoosh]
+# The contract is "under about half a second". 0.35s plus scsynth's block
+# rounding lands at 0.351s, which leaves plenty of room.
+duration = 0.35
+
+# A gain, not a normalized level, which is why it sits above 1.0: the noise
+# buffer is normalized to unit peak and then the sweep filter throws most of
+# that away, so the gain has to make it back up. Measured peak is -3.6 dBFS,
+# matching focus.wav / select.wav / capture.wav at -2.9. RMS lands lower than
+# theirs by design -- this is one transient, not a cluster of clicks. There is
+# no limiter in the chain, so the only way to know is to render and measure.
+amplitude = 1.10
+
+# Loudest at 35% of the way through, brightest at 45%. The offset is the whole
+# gesture: the sound arrives, and then the bright edge of it goes past.
+attack_fraction = 0.35
+sweep_peak_at = 0.45
+
+# Starts below the 270 Hz partial so the opening is felt rather than heard,
+# opens to 5.2k -- short of the 11k Nyquist, because a sweep that runs into the
+# ceiling stops sounding like it is travelling -- and closes to 300 Hz rather
+# than back to the start, so the tail is a little brighter than the head and the
+# whole thing reads as having moved somewhere.
+cutoff_start = 180.0
+cutoff_peak = 5200.0
+cutoff_end = 300.0
+
+# White noise through this filter is hiss. A modest darkening turns it into
+# moving air, which is the difference between a whoosh and a shhh.
+noise_tilt = 0.22
+
+# The flight beds are mostly a 90 Hz fundamental and its first two harmonics --
+# measured off flight-slow.wav at 0 dB, -5.4 dB and -20.7 dB. Putting them under
+# the noise is the only part of the family resemblance that survives; the
+# generator, the filter topology and the seed lineage all differ.
+partials = [[90.0, 1.0], [180.0, 0.55], [270.0, 0.12]]
+
+# Enough body to feel like thrusters, not so much that it becomes a thump with
+# some noise on it.
+body_mix = 0.16

@@ -7,9 +7,16 @@ exactly why SuperCollider's own stock `default` SynthDef cannot be rendered
 twice to the same bytes. Any variation we want is computed in Python from the
 recipe seed and passed in as a synth parameter.
 
-The pad is a factory rather than a module-level SynthDef because the number of
-detuned voices changes the shape of the UGen graph, so it has to be fixed when
-the graph is built rather than passed in at note-on.
+`noise_samples()` extends that rule rather than breaking it. A whoosh is
+filtered noise, and the rule appears to forbid one; the way through is the move
+the rule already describes, with an array instead of a scalar. The samples are
+drawn in Python from the recipe seed, loaded into a Buffer, and read back with
+PlayBuf. Server RNG is never touched.
+
+Both instruments are factories rather than module-level SynthDefs because their
+graph shape depends on the recipe: the pad's on how many detuned voices it
+stacks, the whoosh's on its envelope times, which have to be literals in the
+serialized Envelope rather than parameters set at note-on.
 """
 
 from __future__ import annotations
@@ -17,9 +24,11 @@ from __future__ import annotations
 import functools
 import math
 import operator
+import random
 from collections.abc import Sequence
 
 from supriya import Envelope, synthdef
+from supriya.enums import EnvelopeShape
 from supriya.ugens import (
     LPF,
     AllpassC,
@@ -31,6 +40,7 @@ from supriya.ugens import (
     LinExp,
     Out,
     Pan2,
+    PlayBuf,
     SinOsc,
     VarSaw,
 )
@@ -115,6 +125,114 @@ def build_pad(
         Out.ar(bus=out, source=Pan2.ar(source=signal * env * amplitude, position=pan))
 
     return pad
+
+
+def noise_samples(seed: int, count: int, tilt: float) -> list[float]:
+    """Seeded noise, generated here instead of on the server.
+
+    `tilt` is 0.0 for white and approaches 1.0 for progressively darker noise,
+    applied as a one-pole lowpass whose coefficient is the tilt itself. Lowpassing
+    costs level, so the result is de-meaned and normalized to unit peak; that way
+    `tilt` changes the colour of the noise and nothing else, and the recipe's
+    amplitude dial keeps meaning the same thing across the range.
+
+    `random.Random` rather than numpy because the seed has to mean the same thing
+    on another machine, and CPython's Mersenne Twister with `uniform()` is the
+    generator this project already relies on for that.
+    """
+    if not 0.0 <= tilt < 1.0:
+        raise ValueError(f"noise tilt must be in [0.0, 1.0), got {tilt}")
+    rng = random.Random(seed)
+    previous = 0.0
+    samples = []
+    for _ in range(count):
+        previous = tilt * previous + (1.0 - tilt) * rng.uniform(-1.0, 1.0)
+        samples.append(previous)
+
+    mean = sum(samples) / len(samples)
+    samples = [value - mean for value in samples]
+    peak = max(abs(value) for value in samples)
+    return [value / peak for value in samples] if peak else samples
+
+
+def build_whoosh(
+    duration: float,
+    attack_fraction: float,
+    sweep_peak_at: float,
+    cutoff_start: float,
+    cutoff_peak: float,
+    cutoff_end: float,
+    partials: Sequence[Sequence[float]],
+):
+    """Build the whoosh SynthDef: one-shot swept noise over a fixed low body.
+
+    Same mechanism as the pad's moving filter at a different time scale. The pad
+    drives its cutoff from an LFO because a pad breathes on a cycle; a sub-second
+    one-shot wants a single traversal instead, so the cutoff comes from an
+    envelope that opens and then closes. Opening alone is a burst of static --
+    the close is what makes it movement rather than noise.
+
+    Amplitude gets its own envelope rather than reusing the cutoff's. The two
+    peaks are deliberately offset: `sweep_peak_at` sits later than
+    `attack_fraction`, so the brightest instant lands just after the loudest one
+    and the thing reads as having gone past you.
+
+    `partials` are (frequency, gain) pairs summed under the noise, unfiltered.
+    They exist to buy back some of the family resemblance to callscape's flight
+    beds, whose character is mostly a 90 Hz fundamental and its first two
+    harmonics. The sweep would gut them -- it starts below 270 Hz -- so they
+    bypass the filter and take only the amplitude envelope.
+    """
+    rise = duration * attack_fraction
+    open_time = duration * sweep_peak_at
+    frequencies = tuple(float(frequency) for frequency, _ in partials)
+    gains = tuple(float(gain) for _, gain in partials)
+    # Reuse the pad's golden-angle spacing. Harmonically related sines all
+    # starting at phase 0 sum to a peaky waveform that wastes headroom for no
+    # audible gain; scattering the phases flattens the crest factor.
+    phases = default_voice_phases(len(frequencies))
+
+    @synthdef()
+    def whoosh(out=0, buffer_id=0, amplitude=0.5, body_mix=0.35):
+        amplitude_envelope = EnvGen.kr(
+            envelope=Envelope(
+                amplitudes=[0.0, 1.0, 0.0],
+                durations=[rise, duration - rise],
+                # Convex in, concave out: the rise accelerates into its peak and
+                # the fall drops away immediately. A symmetric envelope reads as
+                # a swell, which is the wrong gesture for a half-turn.
+                curves=[2.0, -2.5],
+            ),
+            done_action=2,
+        )
+        # Exponential segments for the same reason the pad runs its LFO through
+        # LinExp: a linear travel in Hz spends most of its time sounding like it
+        # is already at the top.
+        cutoff = EnvGen.kr(
+            envelope=Envelope(
+                amplitudes=[cutoff_start, cutoff_peak, cutoff_end],
+                durations=[open_time, duration - open_time],
+                curves=[EnvelopeShape.EXPONENTIAL, EnvelopeShape.EXPONENTIAL],
+            )
+        )
+        # rate defaults to 1.0, which is already correct: the buffer is allocated
+        # empty rather than read from a file, so it carries the server's own
+        # sample rate and BufRateScale would return 1.0.
+        air = PlayBuf.ar(buffer_id=buffer_id, channel_count=1, loop=0)
+        # Two cascaded 2-pole sections, matching the pad. No resonance: a moving
+        # formant would make this a laser rather than a whoosh.
+        air = LPF.ar(source=LPF.ar(source=air, frequency=cutoff), frequency=cutoff)
+
+        body = _sum(
+            SinOsc.ar(frequency=frequency, phase=phase) * gain
+            for frequency, gain, phase in zip(frequencies, gains, phases)
+        )
+        signal = air * (1.0 - body_mix) + body * body_mix
+        # LeakDC because the filter passes DC and the amplitude envelope
+        # multiplies whatever offset survives into an audible thump.
+        Out.ar(bus=out, source=LeakDC.ar(source=signal * amplitude_envelope * amplitude))
+
+    return whoosh
 
 
 # Schroeder tank delay times, in seconds. Mutually non-harmonic so the comb

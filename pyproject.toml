@@ -7,7 +7,16 @@ authors = [
     { name = "Daniel James Pritchett", email = "dpritchett@gmail.com" }
 ]
 requires-python = ">=3.11"
+# Code and recipes are MIT. Audio rendered from the recipes and distributed by
+# the author is CC BY-NC 4.0 -- see LICENSE-SOUNDS.md, which this field cannot
+# express and does not try to.
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
+    # Runtime, not dev: wavio.py decodes samples with it and analysis.py is on
+    # the `scpad measure` and `scpad render` paths, so an install without numpy
+    # gets a CLI that imports and then dies.
+    "numpy>=2.4.6",
     "supriya>=26.3b0",
 ]
 
@@ -25,6 +34,6 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
-    "numpy>=2.4.6",
+    "doit>=0.37.0",
     "pytest>=9.1.1",
 ]

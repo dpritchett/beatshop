@@ -8,6 +8,7 @@ or drawn from a `random.Random` seeded solely from the recipe.
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 from pathlib import Path
 
@@ -15,12 +16,25 @@ import supriya
 from supriya import Score
 
 from .recipe import Recipe
-from .synths import TWO_PI, build_pad, midi_to_hz, reverb
+from .synths import TWO_PI, build_pad, build_whoosh, midi_to_hz, noise_samples, reverb
 
 # Private audio bus where pad voices sum before the reverb reads them. Buses 0/1
 # are the stereo output, and the score declares zero inputs, so 2 is the first
 # bus that is ours.
 REVERB_BUS = 2
+
+# Samples per `/b_setn`. The noise buffer is far too large for one request, and
+# while an NRT score is read from a file rather than a socket, scsynth still
+# parses one OSC packet at a time. 1024 floats is about 4 KB, comfortably inside
+# anything scsynth will accept, and the chunk count never reaches three digits.
+BUFFER_CHUNK = 1024
+
+# Extra buffer beyond the requested duration, in control blocks. scsynth renders
+# whole 64-sample blocks, so the output always runs slightly long; PlayBuf with
+# loop=0 holds its final sample rather than zeroing, and holding a nonzero noise
+# sample past the end of the envelope is a DC step. Cheaper to over-allocate.
+BUFFER_OVERSHOOT_BLOCKS = 4
+CONTROL_BLOCK = 64
 
 # Filter-sweep stagger. Offsetting per chord and per voice smears the filter
 # motion across the stack instead of letting every note pump in lockstep. These
@@ -60,8 +74,52 @@ def sweep_phases(recipe: Recipe) -> list[list[float]]:
     return phases
 
 
+def build_whoosh_score(recipe: Recipe) -> Score:
+    """Score for a one-shot recipe: one noise buffer, one synth, mono out.
+
+    Mono is not a dial. The source is a single noise buffer with no stereo
+    information in it, callscape's earcons are all mono, and a Pan2 at centre
+    would only double the file size to say the same thing twice.
+    """
+    spec = recipe.whoosh
+    assert spec is not None  # build_score dispatches on this
+    whoosh = build_whoosh(
+        duration=spec.duration,
+        attack_fraction=spec.attack_fraction,
+        sweep_peak_at=spec.sweep_peak_at,
+        cutoff_start=spec.cutoff_start,
+        cutoff_peak=spec.cutoff_peak,
+        cutoff_end=spec.cutoff_end,
+        partials=spec.partials,
+    )
+    frame_count = (
+        math.ceil(spec.duration * recipe.render.sample_rate / CONTROL_BLOCK)
+        + BUFFER_OVERSHOOT_BLOCKS
+    ) * CONTROL_BLOCK
+    samples = noise_samples(recipe.seed, frame_count, spec.noise_tilt)
+
+    score = Score(input_bus_channel_count=0, output_bus_channel_count=1)
+    with score.at(0):
+        score.add_synthdefs(whoosh)
+        buffer_ = score.add_buffer(channel_count=1, frame_count=frame_count)
+        for start in range(0, frame_count, BUFFER_CHUNK):
+            score.set_buffer_range(buffer_, start, samples[start : start + BUFFER_CHUNK])
+        score.add_synth(
+            whoosh,
+            out=0,
+            buffer_id=buffer_,
+            amplitude=spec.amplitude,
+            body_mix=spec.body_mix,
+        )
+    with score.at(recipe.total_seconds):
+        score.do_nothing()
+    return score
+
+
 def build_score(recipe: Recipe) -> Score:
     recipe.validate()
+    if recipe.is_whoosh:
+        return build_whoosh_score(recipe)
     pad = build_pad(recipe.pad.detune_cents, recipe.pad.voice_phases)
     phases = sweep_phases(recipe)
     score = Score(input_bus_channel_count=0, output_bus_channel_count=2)

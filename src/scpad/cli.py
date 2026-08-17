@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .analysis import measure, measure_seam
+from .analysis import measure, measure_seam, measure_sweep
 from .recipe import RecipeError, load
 from .wavio import read_wav
 
@@ -48,6 +48,9 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     if args.seam:
         print()
         print(measure_seam(audio).describe())
+    if args.sweep:
+        print()
+        print(measure_sweep(audio).describe())
     return 1 if metrics.silent or metrics.clipped_samples else 0
 
 
@@ -78,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     p_measure.add_argument("wav", type=Path)
     p_measure.add_argument(
         "--seam", action="store_true", help="also report loop-point discontinuity"
+    )
+    p_measure.add_argument(
+        "--sweep",
+        action="store_true",
+        help="also report where a one-shot peaks and how far its filter travels",
     )
     p_measure.set_defaults(func=_cmd_measure)
 
