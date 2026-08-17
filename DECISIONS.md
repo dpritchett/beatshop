@@ -105,6 +105,14 @@ and distribution to `scpad` (`src/scpad/`, CLI entry point `scpad`) since the
 CLI was specified as `scpad render`. Left the directory and git remote alone —
 that is a rename for later.
 
+**Settled 2026-08-17, in the other direction.** Going public as
+`github.com/dpritchett/beatshop` makes `beatshop` the name people see first, so
+the README leads with it and names the `scpad` CLI in the second paragraph
+rather than pretending the split does not exist. No rename is coming: renaming
+the package would break `scpad render` in muscle memory and in callscape's
+notes, and renaming the repo would break the URL that was just published. Two
+names for one thing, documented, is the cheap option.
+
 ## Analysis
 
 Wrote a small RIFF reader (`src/scpad/wavio.py`) instead of adding a libsndfile

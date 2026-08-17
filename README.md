@@ -1,7 +1,12 @@
-# scpad
+# beatshop
 
 Deterministic offline audio rendering. A recipe goes in, a reproducible WAV
 comes out, and defects are caught by measurement rather than by listening.
+
+The repo is `beatshop`. The Python package and the CLI it installs are both
+`scpad`, because the command was specified as `scpad render` before the repo had
+a name. Two names for one thing is a wart, and it is cheaper to say so here than
+to break everyone's muscle memory renaming it.
 
 Two kinds of recipe. A `[pad]` recipe is a slow ambient piece, minutes long. A
 `[whoosh]` recipe is a sub-second one-shot earcon. They share the render path,
