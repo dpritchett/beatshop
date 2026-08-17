@@ -9,6 +9,7 @@ static, and that is a defect a number can catch.
 from __future__ import annotations
 
 import hashlib
+import itertools
 from pathlib import Path
 
 import pytest
@@ -141,7 +142,8 @@ def test_the_filter_opens_and_then_closes(flip_render):
     """
     sweep = measure_sweep(read_wav(flip_render))
     assert sweep.centroid_peak > sweep.centroid_start * 4.0, (
-        f"filter barely opens: {sweep.centroid_start:.0f} -> {sweep.centroid_peak:.0f} Hz"
+        f"filter barely opens: {sweep.centroid_start:.0f} -> "
+        f"{sweep.centroid_peak:.0f} Hz"
     )
     assert sweep.centroid_end < sweep.centroid_peak * 0.4, (
         f"filter does not close: peaks at {sweep.centroid_peak:.0f}, "
@@ -191,7 +193,7 @@ def test_tilt_darkens_the_noise():
     the same statement as less high-frequency content."""
 
     def roughness(samples):
-        return sum(abs(b - a) for a, b in zip(samples, samples[1:])) / len(samples)
+        return sum(abs(b - a) for a, b in itertools.pairwise(samples)) / len(samples)
 
     white = noise_samples(seed=1102, count=4096, tilt=0.0)
     dark = noise_samples(seed=1102, count=4096, tilt=0.6)

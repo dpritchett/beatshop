@@ -20,9 +20,15 @@ realtime server, no DAW, no GUI, and no audio device is opened during rendering.
 
     sudo apt-get install -y --no-install-recommends supercollider-server
     uv sync
+    lefthook install
 
 That is six packages and no Qt. `jackd` comes along as a hard dependency of the
 server package but is never started; decline its realtime-priority prompt.
+
+`lefthook install` wires up the pre-commit hook: ruff lint, ruff format check,
+the full test suite, and a refusal to commit audio files. There is no CI, so
+that hook is the only gate. It runs in about four seconds and it reports rather
+than rewriting your files -- `uv run doit fmt` is how formatting gets fixed.
 
 ## Use
 
@@ -42,7 +48,10 @@ There is a task runner for the parts you do more than once:
     uv run doit list         # the menu
     uv run doit render       # every recipe in recipes/, skipping what is current
     uv run doit tune         # render a one-shot and chart its shape
+    uv run doit audition     # stitch a one-shot into something judgeable
     uv run doit test
+    uv run doit lint         # what the pre-commit hook runs
+    uv run doit fmt          # apply formatting and safe lint fixes
 
 ## What determinism means here
 

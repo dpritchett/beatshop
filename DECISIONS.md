@@ -346,6 +346,41 @@ Also fixed while in `pyproject.toml`: numpy was in the dev dependency group but
 `wavio.py` and `analysis.py` import it at runtime, so an actual install produced
 a CLI that imported and then died. Moved to `dependencies`.
 
+## Lefthook, and no CI (2026-08-17)
+
+`lefthook.yaml` runs on pre-commit: ruff lint, ruff format check, the full test
+suite, and a refusal to commit audio. No CI by choice, which makes that hook the
+only gate — so it runs the real suite rather than a fast subset. Whole thing is
+about 4.4 seconds in parallel, most of it pytest, which is affordable because
+NRT rendering is 67x realtime.
+
+Checks report and fail; they never rewrite files mid-commit. A hook that
+reformats underneath you means the thing you reviewed is not the thing that
+landed. `doit fmt` applies formatting when you want it applied.
+
+The audio guard exists because `out/` being gitignored is not actually
+protection: one `git add -f` puts a 32MB WAV in history permanently. Verified it
+fires rather than assuming — force-staged `out/flip.wav` and watched the hook
+refuse.
+
+Ruff at line-length 88, its default and black's. black was already in the
+lockfile as the implied standard with nothing enforcing it, and 13 lines had
+drifted past 88. Adopted the default rather than widening the limit to fit
+whatever the longest existing line happened to be, which would have been
+retconning the style to match the drift. Six files reformatted; both golden
+checksums still pass, so no render changed.
+
+Rule set is `E,F,W,I,UP,B,RUF` — correctness, import order, modern syntax, the
+bugbear checks that catch real mistakes. Deliberately not full pylint: this runs
+on every commit and style arguments are not worth the friction.
+
+Two findings, both fixed rather than configured away. `subprocess.run` in
+`playback.py` without an explicit `check` — now `check=False` with a comment
+saying why, since the returncode check below it produces a better error than
+`CalledProcessError` would. And three `zip()` calls without `strict=`; all three
+have real length invariants, so `strict=True` turns a silent truncation into a
+crash, which is what the rest of this codebase does with bad input.
+
 ## Open / not yet done
 
 - **Seamless wrap-around**, if the fade-to-silence contract stops being good

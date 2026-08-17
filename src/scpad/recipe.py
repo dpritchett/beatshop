@@ -108,7 +108,11 @@ class WhooshSpec:
     # 0.0 is white noise; higher is darker. See synths.noise_samples.
     noise_tilt: float = 0.35
     # (frequency, gain) pairs mixed under the noise, unfiltered.
-    partials: tuple[tuple[float, ...], ...] = ((90.0, 1.0), (180.0, 0.55), (270.0, 0.12))
+    partials: tuple[tuple[float, ...], ...] = (
+        (90.0, 1.0),
+        (180.0, 0.55),
+        (270.0, 0.12),
+    )
     # Blend between the filtered noise and those partials, 0.0 to 1.0.
     body_mix: float = 0.35
 
@@ -193,7 +197,8 @@ class Recipe:
         for pair in whoosh.partials:
             if len(pair) != 2:
                 raise RecipeError(
-                    f"whoosh.partials entries must be [frequency, gain] pairs, got {list(pair)}"
+                    "whoosh.partials entries must be [frequency, gain] pairs, "
+                    f"got {list(pair)}"
                 )
             if pair[0] <= 0:
                 raise RecipeError("whoosh.partials frequencies must be positive")
@@ -279,7 +284,9 @@ def load(path: str | Path) -> Recipe:
     recipe = Recipe(
         name=str(top["name"]),
         seed=int(top["seed"]),
-        render=RenderSpec(**_take(raw.get("render", {}), RenderSpec, f"{path} [render]")),
+        render=RenderSpec(
+            **_take(raw.get("render", {}), RenderSpec, f"{path} [render]")
+        ),
         pad=PadSpec(
             **_tuplify(
                 _take(raw.get("pad", {}), PadSpec, f"{path} [pad]"),

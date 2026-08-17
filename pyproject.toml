@@ -27,6 +27,24 @@ scpad = "scpad.cli:main"
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.ruff]
+# 88 is ruff's default and black's, and black was already in the lockfile as the
+# implied standard even though nothing enforced it. Adopting the default rather
+# than widening to fit whatever the longest existing line happened to be.
+line-length = 88
+
+[tool.ruff.lint]
+# Pragmatic set for a small repo: correctness (E/F/W), import order (I), modern
+# syntax (UP), the bugbear checks that catch real mistakes (B), and ruff's own
+# (RUF). Deliberately not the full pylint set -- this runs on every commit and
+# style arguments are not worth the friction.
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Recipes and sound design read better with the numbers inline, and the tuning
+# scripts are scratch drivers where a magic number is the whole point.
+"scripts/*" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # No slow/fast split. NRT rendering runs ~67x realtime, so a full 111s piece
@@ -36,4 +54,5 @@ testpaths = ["tests"]
 dev = [
     "doit>=0.37.0",
     "pytest>=9.1.1",
+    "ruff>=0.16.3",
 ]

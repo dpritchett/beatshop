@@ -42,7 +42,8 @@ class Metrics:
     def describe(self) -> str:
         dc = ", ".join(f"{d:+.2e}" for d in self.dc_offset)
         return (
-            f"duration    {self.duration:.3f}s @ {self.sample_rate}Hz x{self.channels}\n"
+            f"duration    {self.duration:.3f}s @ {self.sample_rate}Hz "
+            f"x{self.channels}\n"
             f"peak        {self.peak:.6f}  ({self.peak_db:.2f} dBFS)\n"
             f"rms         {self.rms:.6f}  ({self.rms_db:.2f} dBFS)\n"
             f"dc offset   {dc}\n"

@@ -81,7 +81,10 @@ def test_empty_progression_is_rejected(tmp_path):
 
 
 def test_chord_wider_than_pans_is_rejected(tmp_path):
-    body = 'name = "x"\nseed = 1\n[pad]\npans = [0.0]\n[progression]\nchords = [[60, 64]]\n'
+    body = (
+        'name = "x"\nseed = 1\n[pad]\npans = [0.0]\n'
+        "[progression]\nchords = [[60, 64]]\n"
+    )
     with pytest.raises(RecipeError, match="every note needs a pan"):
         load(write(tmp_path, body))
 

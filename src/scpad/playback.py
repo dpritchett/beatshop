@@ -34,13 +34,18 @@ def _powershell(script: str, *, timeout: float | None = 30.0) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
+            # Explicit: the returncode check below raises PlaybackError with the
+            # actual stderr in it, which is more use than CalledProcessError.
+            check=False,
         )
     except FileNotFoundError as exc:
         raise PlaybackError(
             "powershell.exe not found -- playback needs WSL interop enabled"
         ) from exc
     if proc.returncode != 0:
-        raise PlaybackError(f"powershell failed: {proc.stderr.strip() or proc.stdout.strip()}")
+        raise PlaybackError(
+            f"powershell failed: {proc.stderr.strip() or proc.stdout.strip()}"
+        )
     return proc.stdout.strip()
 
 

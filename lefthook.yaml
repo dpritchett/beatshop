@@ -1,0 +1,42 @@
+# Local quality gate. No CI -- this is the only thing standing between a bad
+# commit and the repo, so it runs the real test suite rather than a fast subset.
+#
+#   lefthook install     # once per clone, wires up .git/hooks
+#   lefthook run pre-commit
+#
+# Checks report and fail; they never rewrite your files mid-commit. `doit fmt`
+# fixes formatting when ruff complains, and you decide when that happens.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: ruff-lint
+      glob: "*.py"
+      run: uv run ruff check {staged_files}
+
+    - name: ruff-format
+      glob: "*.py"
+      # --check, not --fix. A hook that edits files underneath a commit means
+      # the thing you reviewed is not the thing that landed.
+      run: uv run ruff format --check {staged_files}
+
+    - name: pytest
+      # Renders are the whole product, and a recipe or a SynthDef change can
+      # break the sound without breaking the syntax. Skipped for docs-only
+      # commits, which is most of them.
+      glob:
+        - "*.py"
+        - "*.toml"
+      run: uv run pytest -q
+
+    - name: no-render-artifacts
+      # out/ is gitignored, but a `git add -f` or a moved file could still drag
+      # a 32MB WAV into history, and git does not forget.
+      glob:
+        - "*.wav"
+        - "*.flac"
+        - "*.mp3"
+      run: |
+        echo "refusing to commit audio: {staged_files}"
+        echo "renders are reproducible from recipes -- see .gitignore"
+        exit 1

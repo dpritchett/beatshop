@@ -26,7 +26,15 @@ import numpy as np
 from scpad.wavio import read_wav
 
 OUT = Path("out")
-BED = Path.home() / "Projects" / "callscape" / "web" / "public" / "sounds" / "flight-slow.wav"
+BED = (
+    Path.home()
+    / "Projects"
+    / "callscape"
+    / "web"
+    / "public"
+    / "sounds"
+    / "flight-slow.wav"
+)
 
 
 def silence(seconds: float, rate: int) -> np.ndarray:
@@ -54,9 +62,12 @@ def main(argv: list[str]) -> int:
     parts = [
         silence(0.3, rate),
         # Three singles, spaced far enough apart to hear each as a whole.
-        flip, silence(0.7, rate),
-        flip, silence(0.7, rate),
-        flip, silence(1.0, rate),
+        flip,
+        silence(0.7, rate),
+        flip,
+        silence(0.7, rate),
+        flip,
+        silence(1.0, rate),
     ]
 
     # Retrigger: two 0.25s apart, which is faster than the 0.2s camera spin can

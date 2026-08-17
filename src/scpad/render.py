@@ -103,7 +103,9 @@ def build_whoosh_score(recipe: Recipe) -> Score:
         score.add_synthdefs(whoosh)
         buffer_ = score.add_buffer(channel_count=1, frame_count=frame_count)
         for start in range(0, frame_count, BUFFER_CHUNK):
-            score.set_buffer_range(buffer_, start, samples[start : start + BUFFER_CHUNK])
+            score.set_buffer_range(
+                buffer_, start, samples[start : start + BUFFER_CHUNK]
+            )
         score.add_synth(
             whoosh,
             out=0,

@@ -96,6 +96,22 @@ def task_test():
     return {"actions": ["pytest -q"], "uptodate": [False]}
 
 
+def task_lint():
+    """Check style and lint the way the pre-commit hook will."""
+    return {
+        "actions": ["ruff check .", "ruff format --check ."],
+        "uptodate": [False],
+    }
+
+
+def task_fmt():
+    """Apply formatting and the lint fixes ruff considers safe."""
+    return {
+        "actions": ["ruff format .", "ruff check --fix ."],
+        "uptodate": [False],
+    }
+
+
 def task_deliver():
     """Copy the flip earcon into callscape's sounds directory."""
     source = OUT / "flip.wav"

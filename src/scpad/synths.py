@@ -76,7 +76,8 @@ def build_pad(
     )
     if len(phases) != len(cents):
         raise ValueError(
-            f"{len(cents)} detune values but {len(phases)} voice phases; they must match"
+            f"{len(cents)} detune values but {len(phases)} voice phases; "
+            "they must match"
         )
 
     @synthdef()
@@ -115,13 +116,15 @@ def build_pad(
                 initial_phase=phase,
                 width=width,
             )
-            for detune, phase in zip(cents, phases)
+            for detune, phase in zip(cents, phases, strict=True)
         ]
         signal = _sum(voices) * (1.0 / len(voices))
         # Two cascaded 2-pole sections: a 4-pole slope with no resonance peak.
         # Resonance would put a moving formant in the sound, which draws the ear
         # exactly where this music does not want it.
-        signal = LPF.ar(source=LPF.ar(source=signal, frequency=cutoff), frequency=cutoff)
+        signal = LPF.ar(
+            source=LPF.ar(source=signal, frequency=cutoff), frequency=cutoff
+        )
         Out.ar(bus=out, source=Pan2.ar(source=signal * env * amplitude, position=pan))
 
     return pad
@@ -225,12 +228,14 @@ def build_whoosh(
 
         body = _sum(
             SinOsc.ar(frequency=frequency, phase=phase) * gain
-            for frequency, gain, phase in zip(frequencies, gains, phases)
+            for frequency, gain, phase in zip(frequencies, gains, phases, strict=True)
         )
         signal = air * (1.0 - body_mix) + body * body_mix
         # LeakDC because the filter passes DC and the amplitude envelope
         # multiplies whatever offset survives into an audible thump.
-        Out.ar(bus=out, source=LeakDC.ar(source=signal * amplitude_envelope * amplitude))
+        Out.ar(
+            bus=out, source=LeakDC.ar(source=signal * amplitude_envelope * amplitude)
+        )
 
     return whoosh
 
@@ -281,7 +286,10 @@ def reverb(in_bus=2, out=0, decay=7.0, damping=2400.0, mix=0.45, predelay=0.04):
     # is one of the defects the tests assert against.
     Out.ar(
         bus=out,
-        source=[LeakDC.ar(source=d * (1.0 - mix) + w * mix) for d, w in zip(dry, wet)],
+        source=[
+            LeakDC.ar(source=d * (1.0 - mix) + w * mix)
+            for d, w in zip(dry, wet, strict=True)
+        ],
     )
 
 

@@ -55,7 +55,9 @@ def test_render_is_neither_silent_nor_clipped(tiny_render):
     audio = read_wav(tiny_render)
     metrics = measure(audio)
     assert not metrics.silent, "render produced no signal"
-    assert metrics.clipped_samples == 0, f"{metrics.clipped_samples} samples at full scale"
+    assert metrics.clipped_samples == 0, (
+        f"{metrics.clipped_samples} samples at full scale"
+    )
     # Loud enough to be worth listening to, quiet enough to leave headroom.
     assert -20.0 < metrics.peak_db < -3.0, f"peak {metrics.peak_db:.2f} dBFS"
     assert audio.channels == 2
