@@ -1,0 +1,9 @@
+# Renders are reproducible from the recipe plus the pinned lockfile, so they are
+# regenerated rather than stored. A 111s stereo 24-bit render is ~32MB; putting
+# those in git would cost more than re-running scsynth.
+out/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
